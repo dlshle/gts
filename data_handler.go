@@ -1,7 +1,8 @@
-package tcp
+package gts
 
 import (
 	"encoding/binary"
+
 	"github.com/dlshle/gommon/errors"
 )
 
