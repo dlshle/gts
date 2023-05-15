@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/dlshle/gommon/logger"
+	"github.com/dlshle/gommon/logging"
 )
 
 type TCPServer interface {
@@ -21,7 +21,7 @@ type tcpServer struct {
 	name     string
 	address  string
 	port     int
-	logger   logger.Logger
+	logger   logging.Logger
 	ctx      context.Context
 	stopFunc func()
 
@@ -36,31 +36,32 @@ func NewTCPServer(name, addr string, port int) TCPServer {
 		name:     name,
 		address:  addr,
 		port:     port,
-		logger:   logger.StdOutLevelLogger("[TCPServer]"),
+		logger:   logging.GlobalLogger.WithPrefix("[TCPServer]"),
 		ctx:      ctx,
 		stopFunc: cancelFunc,
 	}
 }
 
 func (s *tcpServer) Start() error {
-	s.logger.Info("starting TCP server...")
+	s.logger.Info(s.ctx, "starting TCP server...")
 	listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", s.address, s.port))
 	if err != nil {
 		return err
 	}
-	select {
-	case <-s.ctx.Done():
-		s.logger.Info("stopping server ...")
-		break
-	default:
-		conn, err := listener.Accept()
-		if err != nil {
-			s.logger.Info("listener err: " + err.Error())
-			return err
-		}
-		go s.handleNewConnection(conn)
-	}
-	return listener.Close()
+  for {
+    select {
+    case <-s.ctx.Done():
+      s.logger.Info(s.ctx, "stopping server ...")
+	    return listener.Close()
+    default:
+      conn, err := listener.Accept()
+      if err != nil {
+        s.logger.Info(s.ctx, "listener err: " + err.Error())
+        return err
+      }
+      go s.handleNewConnection(conn)
+    }
+  }
 }
 
 func (s *tcpServer) toTCPConnection(conn net.Conn) Connection {
@@ -69,7 +70,7 @@ func (s *tcpServer) toTCPConnection(conn net.Conn) Connection {
 
 func (s *tcpServer) handleNewConnection(rawConn net.Conn) {
 	conn := s.toTCPConnection(rawConn)
-	s.logger.Info("new tcp connection ", conn.String())
+	s.logger.Info(s.ctx, "new tcp connection ", conn.String())
 	conn.OnError(func(err error) {
 		s.onConnectionErr(conn, err)
 	})
