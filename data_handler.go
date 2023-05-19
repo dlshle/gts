@@ -24,7 +24,7 @@ func wrapData(data []byte, version byte) []byte {
 	return append(header, data...)
 }
 
-func parseMessageHeader(version byte, header []byte) (uint32, error) {
+func computeFrameDataLength(version byte, header []byte) (uint32, error) {
 	if len(header) != headerLength {
 		return 0, errors.Error("invalid header length")
 	}

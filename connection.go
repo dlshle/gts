@@ -103,7 +103,7 @@ func (c *TCPConnection) read() ([]byte, error) {
 		n = len(buffer)
 		c.remainingReadBuffer = nil
 	}
-	dataLength, err = parseMessageHeader(c.messageVersion, buffer[:headerLength])
+	dataLength, err = computeFrameDataLength(c.messageVersion, buffer[:headerLength])
 	if err != nil {
 		return nil, err
 	}
