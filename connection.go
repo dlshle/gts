@@ -33,14 +33,15 @@ type Connection interface {
 }
 
 type TCPConnection struct {
-	messageVersion byte
-	conn           net.Conn
-	onMessageCb    func([]byte)
-	onCloseCb      func(error)
-	onErrorCb      func(error)
-	state          int
-	rwLock         *sync.RWMutex
-	closeChan      chan bool
+	messageVersion      byte
+	conn                net.Conn
+	onMessageCb         func([]byte)
+	onCloseCb           func(error)
+	onErrorCb           func(error)
+	state               int
+	rwLock              *sync.RWMutex
+	remainingReadBuffer []byte
+	closeChan           chan bool
 }
 
 func NewTCPConnection(conn net.Conn) Connection {
@@ -97,13 +98,20 @@ func (c *TCPConnection) read() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	if c.remainingReadBuffer != nil {
+		buffer = append(c.remainingReadBuffer, buffer[:n]...)
+		n = len(buffer)
+		c.remainingReadBuffer = nil
+	}
 	dataLength, err = parseMessageHeader(c.messageVersion, buffer[:headerLength])
 	if err != nil {
 		return nil, err
 	}
 	buffer = buffer[headerLength:n]
 	if dataLength <= DefaultReadBufferSize-headerLength {
-		return buffer, nil
+		// put the remaining stream into the remaining read buffer
+		c.remainingReadBuffer = buffer[dataLength:]
+		return buffer[:dataLength], nil
 	}
 	consumedLength = uint32(n - headerLength)
 	// continue reading rest of the message data
@@ -116,6 +124,8 @@ func (c *TCPConnection) read() ([]byte, error) {
 		buffer = append(buffer, tempBuffer[:n]...)
 		consumedLength += uint32(n)
 	}
+	// put the remaining stream into the remaining read buffer
+	c.remainingReadBuffer = buffer[dataLength:]
 	return buffer, nil
 }
 
