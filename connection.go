@@ -106,14 +106,14 @@ func (c *TCPConnection) readV2() ([]byte, error) {
 	r := bufio.NewReader(c.conn)
 	// read header from message
 	b := make([]byte, 6)
-	_, err := io.ReadFull(r, b)
+	n, err := io.ReadFull(r, b)
 	if err != nil {
 		if gerrors.Is(err, syscall.ECONNRESET) {
 			c.log("reading header encountered ECONNRESET error: %s", err.Error())
 			return nil, err
 		}
 		if err == io.EOF {
-			c.log("reading header encountered EOF error: %s", err.Error())
+			c.log("reading header encountered EOF error: %s with n = %v", err.Error(), n)
 			return c.readV2()
 		}
 		return nil, err
@@ -124,14 +124,14 @@ func (c *TCPConnection) readV2() ([]byte, error) {
 	}
 	c.log("message length %v", dataLength)
 	contentBytes := make([]byte, dataLength)
-	n, err := io.ReadFull(r, contentBytes)
+	n, err = io.ReadFull(r, contentBytes)
 	if err != nil {
 		if gerrors.Is(err, syscall.ECONNRESET) {
 			c.log("reading header encountered ECONNRESET error: %s", err.Error())
 			return nil, err
 		}
 		if err == io.EOF {
-			c.log("reading content for %v bytes encountered EOF error: %s", dataLength, err.Error())
+			c.log("reading content for %v bytes encountered EOF error: %s with n = %v", dataLength, err.Error(), n)
 			return c.readV2()
 		}
 		return nil, err
