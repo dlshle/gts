@@ -100,6 +100,9 @@ func (c *TCPConnection) readV2() ([]byte, error) {
 	b := make([]byte, 6)
 	_, err := io.ReadFull(r, b)
 	if err != nil {
+		if err == io.EOF {
+			return c.readV2()
+		}
 		return nil, err
 	}
 	dataLength, err = computeFrameDataLength(c.messageVersion, b)
@@ -109,6 +112,9 @@ func (c *TCPConnection) readV2() ([]byte, error) {
 	contentBytes := make([]byte, dataLength)
 	n, err := io.ReadFull(r, contentBytes)
 	if err != nil {
+		if err == io.EOF {
+			return c.readV2()
+		}
 		return nil, err
 	}
 	if n != int(dataLength) {
