@@ -3,10 +3,12 @@ package gts
 import (
 	"bufio"
 	"context"
+	gerrors "errors"
 	"fmt"
 	"io"
 	"net"
 	"sync"
+	"syscall"
 
 	"github.com/dlshle/gommon/errors"
 	"github.com/dlshle/gommon/logging"
@@ -106,6 +108,10 @@ func (c *TCPConnection) readV2() ([]byte, error) {
 	b := make([]byte, 6)
 	_, err := io.ReadFull(r, b)
 	if err != nil {
+		if gerrors.Is(err, syscall.ECONNRESET) {
+			c.log("reading header encountered ECONNRESET error: %s", err.Error())
+			return nil, err
+		}
 		if err == io.EOF {
 			c.log("reading header encountered EOF error: %s", err.Error())
 			return c.readV2()
@@ -120,6 +126,10 @@ func (c *TCPConnection) readV2() ([]byte, error) {
 	contentBytes := make([]byte, dataLength)
 	n, err := io.ReadFull(r, contentBytes)
 	if err != nil {
+		if gerrors.Is(err, syscall.ECONNRESET) {
+			c.log("reading header encountered ECONNRESET error: %s", err.Error())
+			return nil, err
+		}
 		if err == io.EOF {
 			c.log("reading content for %v bytes encountered EOF error: %s", dataLength, err.Error())
 			return c.readV2()
