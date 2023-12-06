@@ -235,6 +235,7 @@ func (c *TCPConnection) ReadLoop() {
 		if err == nil {
 			c.handleMessage(msg)
 		} else if err != nil {
+			c.log("read message failed: %s", err.Error())
 			c.onErrorCb(err)
 			break
 		}
