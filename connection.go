@@ -113,8 +113,11 @@ func (c *TCPConnection) readV2() ([]byte, error) {
 			return nil, err
 		}
 		if err == io.EOF {
-			c.log("reading header encountered EOF error: %s with n = %v", err.Error(), n)
 			return c.readV2()
+		}
+		if n != 6 {
+			c.log("reading header encountered error: %s with n = %v", err.Error(), n)
+			return nil, err
 		}
 		return nil, err
 	}
@@ -131,8 +134,11 @@ func (c *TCPConnection) readV2() ([]byte, error) {
 			return nil, err
 		}
 		if err == io.EOF {
-			c.log("reading content for %v bytes encountered EOF error: %s with n = %v", dataLength, err.Error(), n)
 			return c.readV2()
+		}
+		if n != int(dataLength) {
+			c.log("reading header encountered error: %s with n = %v", err.Error(), n)
+			return nil, err
 		}
 		return nil, err
 	}
