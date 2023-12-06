@@ -2,12 +2,14 @@ package gts
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"net"
 	"sync"
 
 	"github.com/dlshle/gommon/errors"
+	"github.com/dlshle/gommon/logging"
 )
 
 const (
@@ -32,6 +34,7 @@ type Connection interface {
 	ReadLoop()
 	String() string
 	IsLive() bool
+	EnableLogging()
 }
 
 type TCPConnection struct {
@@ -44,14 +47,16 @@ type TCPConnection struct {
 	rwLock              *sync.RWMutex
 	remainingReadBuffer []byte
 	closeChan           chan bool
+	debugLogging        bool
 }
 
 func NewTCPConnection(conn net.Conn) Connection {
 	return &TCPConnection{
-		conn:      conn,
-		state:     StateIdle,
-		rwLock:    new(sync.RWMutex),
-		closeChan: make(chan bool),
+		conn:         conn,
+		state:        StateIdle,
+		rwLock:       new(sync.RWMutex),
+		closeChan:    make(chan bool),
+		debugLogging: false,
 	}
 }
 
@@ -94,6 +99,7 @@ func (c *TCPConnection) Read() ([]byte, error) {
 }
 
 func (c *TCPConnection) readV2() ([]byte, error) {
+	c.log("reading...")
 	var dataLength uint32
 	r := bufio.NewReader(c.conn)
 	// read header from message
@@ -101,6 +107,7 @@ func (c *TCPConnection) readV2() ([]byte, error) {
 	_, err := io.ReadFull(r, b)
 	if err != nil {
 		if err == io.EOF {
+			c.log("reading header encountered EOF error: %s", err.Error())
 			return c.readV2()
 		}
 		return nil, err
@@ -109,15 +116,18 @@ func (c *TCPConnection) readV2() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	c.log("message length %v", dataLength)
 	contentBytes := make([]byte, dataLength)
 	n, err := io.ReadFull(r, contentBytes)
 	if err != nil {
 		if err == io.EOF {
+			c.log("reading content for %v bytes encountered EOF error: %s", dataLength, err.Error())
 			return c.readV2()
 		}
 		return nil, err
 	}
 	if n != int(dataLength) {
+		c.log("read data length %v mismatch data length %v", n, dataLength)
 		return nil, errors.Error("failed to read expected data: incorrect bytes read from stream")
 	}
 	return contentBytes, nil
@@ -239,4 +249,15 @@ func (c *TCPConnection) String() string {
 
 func (c *TCPConnection) IsLive() bool {
 	return c.State() == StateReading
+}
+
+func (c *TCPConnection) EnableLogging() {
+	c.debugLogging = true
+}
+
+func (c *TCPConnection) log(formatter string, contents ...interface{}) {
+	if !c.debugLogging {
+		return
+	}
+	logging.GlobalLogger.Debugf(context.Background(), formatter, contents...)
 }
