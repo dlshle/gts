@@ -1,7 +1,9 @@
 package gts
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 
@@ -82,13 +84,37 @@ func (c *TCPConnection) Read() ([]byte, error) {
 	if c.state != StateIdle {
 		return nil, errors.Error("invalid state for synchronous reading")
 	}
-	data, err := c.read()
+	data, err := c.readV2()
 	if err != nil {
 		c.handleError(err)
 	} else {
 		c.handleMessage(data)
 	}
 	return data, err
+}
+
+func (c *TCPConnection) readV2() ([]byte, error) {
+	var dataLength uint32
+	r := bufio.NewReader(c.conn)
+	// read header from message
+	b := make([]byte, 6)
+	_, err := io.ReadFull(r, b)
+	if err != nil {
+		return nil, err
+	}
+	dataLength, err = computeFrameDataLength(c.messageVersion, b)
+	if err != nil {
+		return nil, err
+	}
+	contentBytes := make([]byte, dataLength)
+	n, err := io.ReadFull(r, contentBytes)
+	if err != nil {
+		return nil, err
+	}
+	if n != int(dataLength) {
+		return nil, errors.Error("failed to read expected data: incorrect bytes read from stream")
+	}
+	return contentBytes, nil
 }
 
 func (c *TCPConnection) read() ([]byte, error) {
@@ -189,7 +215,7 @@ func (c *TCPConnection) ReadLoop() {
 	c.setState(StateReading)
 	// c.conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
 	for c.State() == StateReading {
-		msg, err := c.read()
+		msg, err := c.readV2()
 		if err == nil {
 			c.handleMessage(msg)
 		} else if err != nil {
