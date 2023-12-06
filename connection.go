@@ -91,7 +91,7 @@ func (c *TCPConnection) Read() ([]byte, error) {
 	if c.state != StateIdle {
 		return nil, errors.Error("invalid state for synchronous reading")
 	}
-	data, err := c.readV2()
+	data, err := c.read()
 	if err != nil {
 		c.handleError(err)
 	} else {
@@ -100,10 +100,12 @@ func (c *TCPConnection) Read() ([]byte, error) {
 	return data, err
 }
 
-func (c *TCPConnection) readV2() ([]byte, error) {
+func (c *TCPConnection) readV2(r *bufio.Reader) ([]byte, error) {
 	c.log("reading...")
 	var dataLength uint32
-	r := bufio.NewReader(c.conn)
+	if r == nil {
+		r = bufio.NewReader(c.conn)
+	}
 	// read header from message
 	b := make([]byte, 6)
 	n, err := io.ReadFull(r, b)
@@ -113,7 +115,7 @@ func (c *TCPConnection) readV2() ([]byte, error) {
 			return nil, err
 		}
 		if err == io.EOF {
-			return c.readV2()
+			return c.readV2(r)
 		}
 		if n != 6 {
 			c.log("reading header encountered error: %s with n = %v", err.Error(), n)
@@ -134,7 +136,7 @@ func (c *TCPConnection) readV2() ([]byte, error) {
 			return nil, err
 		}
 		if err == io.EOF {
-			return c.readV2()
+			return c.readV2(r)
 		}
 		if n != int(dataLength) {
 			c.log("reading header encountered error: %s with n = %v", err.Error(), n)
@@ -247,7 +249,8 @@ func (c *TCPConnection) ReadLoop() {
 	c.setState(StateReading)
 	// c.conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
 	for c.State() == StateReading {
-		msg, err := c.readV2()
+		r := bufio.NewReader(c.conn)
+		msg, err := c.readV2(r)
 		if err == nil {
 			c.handleMessage(msg)
 		} else if err != nil {
