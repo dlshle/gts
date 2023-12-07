@@ -2,7 +2,6 @@ package gts
 
 import (
 	"bufio"
-	"context"
 	gerrors "errors"
 	"fmt"
 	"io"
@@ -11,7 +10,6 @@ import (
 	"syscall"
 
 	"github.com/dlshle/gommon/errors"
-	"github.com/dlshle/gommon/logging"
 )
 
 const (
@@ -36,11 +34,9 @@ type Connection interface {
 	ReadLoop()
 	String() string
 	IsLive() bool
-	EnableLogging(logID string)
 }
 
 type TCPConnection struct {
-	logID               string
 	messageVersion      byte
 	conn                net.Conn
 	onMessageCb         func([]byte)
@@ -50,16 +46,14 @@ type TCPConnection struct {
 	rwLock              *sync.RWMutex
 	remainingReadBuffer []byte
 	closeChan           chan bool
-	debugLogging        bool
 }
 
 func NewTCPConnection(conn net.Conn) Connection {
 	return &TCPConnection{
-		conn:         conn,
-		state:        StateIdle,
-		rwLock:       new(sync.RWMutex),
-		closeChan:    make(chan bool),
-		debugLogging: false,
+		conn:      conn,
+		state:     StateIdle,
+		rwLock:    new(sync.RWMutex),
+		closeChan: make(chan bool),
 	}
 }
 
@@ -102,7 +96,6 @@ func (c *TCPConnection) Read() ([]byte, error) {
 }
 
 func (c *TCPConnection) readV2(r *bufio.Reader) ([]byte, error) {
-	c.log("reading...")
 	var dataLength uint32
 	if r == nil {
 		r = bufio.NewReader(c.conn)
@@ -112,14 +105,12 @@ func (c *TCPConnection) readV2(r *bufio.Reader) ([]byte, error) {
 	n, err := io.ReadFull(r, b)
 	if err != nil {
 		if gerrors.Is(err, syscall.ECONNRESET) {
-			c.log("reading header encountered ECONNRESET error: %s", err.Error())
 			return nil, err
 		}
 		if err == io.EOF {
 			return c.readV2(r)
 		}
 		if n != 6 {
-			c.log("reading header encountered error: %s with n = %v", err.Error(), n)
 			return nil, err
 		}
 		return nil, err
@@ -128,25 +119,21 @@ func (c *TCPConnection) readV2(r *bufio.Reader) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.log("message length %v", dataLength)
 	contentBytes := make([]byte, dataLength)
 	n, err = io.ReadFull(r, contentBytes)
 	if err != nil {
 		if gerrors.Is(err, syscall.ECONNRESET) {
-			c.log("reading header encountered ECONNRESET error: %s", err.Error())
 			return nil, err
 		}
 		if err == io.EOF {
 			return c.readV2(r)
 		}
 		if n != int(dataLength) {
-			c.log("reading header encountered error: %s with n = %v", err.Error(), n)
 			return nil, err
 		}
 		return nil, err
 	}
 	if n != int(dataLength) {
-		c.log("read data length %v mismatch data length %v", n, dataLength)
 		return nil, errors.Error("failed to read expected data: incorrect bytes read from stream")
 	}
 	return contentBytes, nil
@@ -203,12 +190,7 @@ func (c *TCPConnection) handleMessage(message []byte) {
 func (c *TCPConnection) Write(data []byte) (err error) {
 	wrappedData := wrapData(data, c.messageVersion)
 	c.withWrite(func() {
-		n, err := c.conn.Write(wrappedData)
-		if err == nil {
-			c.log("%d byte wrote for %d data", n, len(data))
-		} else {
-			c.log("wrote err: %s", err.Error())
-		}
+		_, err = c.conn.Write(wrappedData)
 	})
 	if err != nil {
 		c.handleError(err)
@@ -260,7 +242,6 @@ func (c *TCPConnection) ReadLoop() {
 		if err == nil {
 			c.handleMessage(msg)
 		} else if err != nil {
-			c.log("read message failed: %s", err.Error())
 			c.onErrorCb(err)
 			break
 		}
@@ -275,16 +256,4 @@ func (c *TCPConnection) String() string {
 
 func (c *TCPConnection) IsLive() bool {
 	return c.State() == StateReading
-}
-
-func (c *TCPConnection) EnableLogging(logID string) {
-	c.debugLogging = true
-	c.logID = logID
-}
-
-func (c *TCPConnection) log(formatter string, contents ...interface{}) {
-	if !c.debugLogging {
-		return
-	}
-	logging.GlobalLogger.Debugf(context.Background(), "["+c.logID+"] "+formatter, contents...)
 }
