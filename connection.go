@@ -203,7 +203,7 @@ func (c *TCPConnection) handleMessage(message []byte) {
 func (c *TCPConnection) Write(data []byte) (err error) {
 	wrappedData := wrapData(data, c.messageVersion)
 	c.withWrite(func() {
-		n, err = c.conn.Write(wrappedData)
+		n, err := c.conn.Write(wrappedData)
 		if err == nil {
 			c.log("%d byte wrote", n)
 		} else {
