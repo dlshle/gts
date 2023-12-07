@@ -36,10 +36,11 @@ type Connection interface {
 	ReadLoop()
 	String() string
 	IsLive() bool
-	EnableLogging()
+	EnableLogging(logID string)
 }
 
 type TCPConnection struct {
+	logID               string
 	messageVersion      byte
 	conn                net.Conn
 	onMessageCb         func([]byte)
@@ -271,13 +272,14 @@ func (c *TCPConnection) IsLive() bool {
 	return c.State() == StateReading
 }
 
-func (c *TCPConnection) EnableLogging() {
+func (c *TCPConnection) EnableLogging(logID string) {
 	c.debugLogging = true
+	c.logID = logID
 }
 
 func (c *TCPConnection) log(formatter string, contents ...interface{}) {
 	if !c.debugLogging {
 		return
 	}
-	logging.GlobalLogger.Debugf(context.Background(), formatter, contents...)
+	logging.GlobalLogger.Debugf(context.Background(), "["+c.logID+"] "+formatter, contents...)
 }
