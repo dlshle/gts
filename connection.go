@@ -205,7 +205,7 @@ func (c *TCPConnection) Write(data []byte) (err error) {
 	c.withWrite(func() {
 		n, err := c.conn.Write(wrappedData)
 		if err == nil {
-			c.log("%d byte wrote", n)
+			c.log("%d byte wrote for %d data", n, len(data))
 		} else {
 			c.log("wrote err: %s", err.Error())
 		}
