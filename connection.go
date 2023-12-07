@@ -37,6 +37,7 @@ type Connection interface {
 	String() string
 	IsLive() bool
 	EnableLogging(logID string)
+	UseV1Read()
 }
 
 type TCPConnection struct {
@@ -51,6 +52,7 @@ type TCPConnection struct {
 	remainingReadBuffer []byte
 	closeChan           chan bool
 	debugLogging        bool
+	useV1Read           bool
 }
 
 func NewTCPConnection(conn net.Conn) Connection {
@@ -102,6 +104,9 @@ func (c *TCPConnection) Read() ([]byte, error) {
 }
 
 func (c *TCPConnection) readV2(r *bufio.Reader) ([]byte, error) {
+	if c.useV1Read {
+		return c.read()
+	}
 	c.log("reading...")
 	var dataLength uint32
 	if r == nil {
@@ -153,10 +158,12 @@ func (c *TCPConnection) readV2(r *bufio.Reader) ([]byte, error) {
 }
 
 func (c *TCPConnection) read() ([]byte, error) {
+	c.log("v1 reading...")
 	var dataLength, consumedLength uint32
 	buffer := make([]byte, DefaultReadBufferSize)
 	n, err := c.conn.Read(buffer)
 	if err != nil {
+		c.log("read %d bytes with err %s", n, err.Error())
 		return nil, err
 	}
 	if c.remainingReadBuffer != nil {
@@ -166,8 +173,10 @@ func (c *TCPConnection) read() ([]byte, error) {
 	}
 	dataLength, err = computeFrameDataLength(c.messageVersion, buffer[:headerLength])
 	if err != nil {
+		c.log("read %d data length with err %s", dataLength, err.Error())
 		return nil, err
 	}
+	c.log("read %d data length", dataLength)
 	buffer = buffer[headerLength:n]
 	if dataLength <= DefaultReadBufferSize-headerLength {
 		// put the remaining stream into the remaining read buffer
@@ -180,8 +189,10 @@ func (c *TCPConnection) read() ([]byte, error) {
 		tempBuffer := make([]byte, dataLength-consumedLength)
 		n, err = c.conn.Read(tempBuffer)
 		if err != nil {
+			c.log("read remaining buffer failed err: %s", err.Error())
 			return nil, err
 		}
+		c.log("read %d bytes for remaining bytes", n)
 		buffer = append(buffer, tempBuffer[:n]...)
 		consumedLength += uint32(n)
 	}
@@ -287,4 +298,8 @@ func (c *TCPConnection) log(formatter string, contents ...interface{}) {
 		return
 	}
 	logging.GlobalLogger.Debugf(context.Background(), "["+c.logID+"] "+formatter, contents...)
+}
+
+func (c *TCPConnection) UseV1Read() {
+	c.useV1Read = true
 }
