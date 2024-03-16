@@ -39,35 +39,27 @@ type Connection interface {
 type TCPConnection struct {
 	messageVersion      byte
 	conn                net.Conn
-	onMessageCb         func([]byte)
-	onCloseCb           func(error)
-	onErrorCb           func(error)
+	onMessage           func([]byte)
+	onClose             func(error)
+	onError             func(error)
 	state               int
-	rwLock              *sync.RWMutex
 	remainingReadBuffer []byte
 	closeChan           chan bool
+	mutex               *sync.Mutex
 }
 
 func NewTCPConnection(conn net.Conn) Connection {
 	return &TCPConnection{
 		conn:      conn,
 		state:     StateIdle,
-		rwLock:    new(sync.RWMutex),
 		closeChan: make(chan bool),
+		mutex:     new(sync.Mutex),
 	}
-}
-
-func (c *TCPConnection) withWrite(cb func()) {
-	c.rwLock.RLock()
-	defer c.rwLock.RUnlock()
-	cb()
 }
 
 func (c *TCPConnection) setState(state int) {
 	if state > 0 && state <= StateDisconnected {
-		c.withWrite(func() {
-			c.state = state
-		})
+		c.state = state
 	}
 }
 
@@ -178,20 +170,20 @@ func (c *TCPConnection) read() ([]byte, error) {
 }
 
 func (c *TCPConnection) OnMessage(cb func([]byte)) {
-	c.onMessageCb = cb
+	c.onMessage = cb
 }
 
 func (c *TCPConnection) handleMessage(message []byte) {
-	if c.onMessageCb != nil {
-		c.onMessageCb(message)
+	if c.onMessage != nil {
+		c.onMessage(message)
 	}
 }
 
 func (c *TCPConnection) Write(data []byte) (err error) {
 	wrappedData := wrapData(data, c.messageVersion)
-	c.withWrite(func() {
-		_, err = c.conn.Write(wrappedData)
-	})
+	c.mutex.Lock()
+	_, err = c.conn.Write(wrappedData)
+	c.mutex.Unlock()
 	if err != nil {
 		c.handleError(err)
 	}
@@ -203,30 +195,28 @@ func (c *TCPConnection) Address() string {
 }
 
 func (c *TCPConnection) OnError(cb func(err error)) {
-	c.onErrorCb = cb
+	c.onError = cb
 }
 
 func (c *TCPConnection) handleError(err error) {
-	if c.onErrorCb != nil {
-		c.onErrorCb(err)
+	if c.onError != nil {
+		c.onError(err)
 	} else {
 		c.Close()
 	}
 }
 
 func (c *TCPConnection) OnClose(cb func(err error)) {
-	c.onCloseCb = cb
+	c.onClose = cb
 }
 
 func (c *TCPConnection) handleClose(err error) {
-	if c.onCloseCb != nil {
-		c.onCloseCb(err)
+	if c.onClose != nil {
+		c.onClose(err)
 	}
 }
 
 func (c *TCPConnection) State() int {
-	c.rwLock.RLock()
-	defer c.rwLock.RUnlock()
 	return c.state
 }
 
@@ -242,7 +232,7 @@ func (c *TCPConnection) ReadLoop() {
 		if err == nil {
 			c.handleMessage(msg)
 		} else if err != nil {
-			c.onErrorCb(err)
+			c.onError(err)
 			break
 		}
 	}

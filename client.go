@@ -5,8 +5,7 @@ import (
 	"net"
 
 	"github.com/dlshle/gommon/errors"
-
-	"github.com/dlshle/gommon/logger"
+	"github.com/dlshle/gommon/logging"
 )
 
 type TCPClient interface {
@@ -24,7 +23,7 @@ type tcpClient struct {
 	serverAddr      string
 	serverPort      int
 	retryCount      int
-	logger          logger.Logger
+	logger          logging.Logger
 	onConnected     func(conn Connection)
 	onMessage       func([]byte)
 	onDisconnected  func(err error)
@@ -37,7 +36,7 @@ func NewTCPClient(serverAddr string, serverPort int) TCPClient {
 		serverAddr: serverAddr,
 		serverPort: serverPort,
 		retryCount: DefaultRetryCount,
-		logger:     logger.StdOutLevelLogger("[TCPClient]"),
+		logger:     logging.GlobalLogger.WithPrefix("[TCPClient]"),
 	}
 }
 
