@@ -147,6 +147,9 @@ func (c *TCPConnection) read() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	if headerLength >= n {
+		return nil, errors.Error("invalid buffer length, buffer length is expected to be larger than header size")
+	}
 	buffer = buffer[headerLength:n]
 	if dataLength <= DefaultReadBufferSize-headerLength {
 		// put the remaining stream into the remaining read buffer
