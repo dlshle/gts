@@ -2,6 +2,7 @@ package gts
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 
@@ -43,25 +44,29 @@ func NewTCPServer(name, addr string, port int) TCPServer {
 }
 
 func (s *tcpServer) Start() error {
+	if s.onConnected == nil {
+		s.logger.Errorf(s.ctx, "onConnected callback is not set")
+		return errors.New("onConnected callback is not set")
+	}
 	s.logger.Info(s.ctx, "starting TCP server...")
 	listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", s.address, s.port))
 	if err != nil {
 		return err
 	}
-  for {
-    select {
-    case <-s.ctx.Done():
-      s.logger.Info(s.ctx, "stopping server ...")
-	    return listener.Close()
-    default:
-      conn, err := listener.Accept()
-      if err != nil {
-        s.logger.Info(s.ctx, "listener err: " + err.Error())
-        return err
-      }
-      go s.handleNewConnection(conn)
-    }
-  }
+	for {
+		select {
+		case <-s.ctx.Done():
+			s.logger.Info(s.ctx, "stopping server ...")
+			return listener.Close()
+		default:
+			conn, err := listener.Accept()
+			if err != nil {
+				s.logger.Info(s.ctx, "listener err: "+err.Error())
+				return err
+			}
+			go s.handleNewConnection(conn)
+		}
+	}
 }
 
 func (s *tcpServer) toTCPConnection(conn net.Conn) Connection {
@@ -72,12 +77,18 @@ func (s *tcpServer) handleNewConnection(rawConn net.Conn) {
 	conn := s.toTCPConnection(rawConn)
 	s.logger.Info(s.ctx, "new tcp connection ", conn.String())
 	conn.OnError(func(err error) {
-		s.onConnectionErr(conn, err)
+		if s.onConnectionErr != nil {
+			s.onConnectionErr(conn, err)
+		}
 	})
 	conn.OnClose(func(err error) {
-		s.onConnectionErr(conn, err)
+		if s.onConnectionErr != nil {
+			s.onConnectionErr(conn, err)
+		}
 	})
-	s.onConnected(conn)
+	if s.onConnected != nil {
+		s.onConnected(conn)
+	}
 }
 
 func (s *tcpServer) Stop() error {
