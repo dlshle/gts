@@ -2,12 +2,10 @@ package gts
 
 import (
 	"bufio"
-	gerrors "errors"
 	"fmt"
 	"io"
 	"net"
 	"sync"
-	"syscall"
 
 	"github.com/dlshle/gommon/errors"
 )
@@ -25,6 +23,7 @@ const (
 type Connection interface {
 	Close() error
 	Read() ([]byte, error)
+	ReadV1(bufferSize int) ([]byte, error)
 	OnMessage(func([]byte))
 	Write([]byte) error
 	Address() string
@@ -74,11 +73,14 @@ func (c *TCPConnection) Close() error {
 	return err
 }
 
-func (c *TCPConnection) Read() ([]byte, error) {
+func (c *TCPConnection) ReadV1(bufferSize int) ([]byte, error) {
 	if c.state != StateIdle {
 		return nil, errors.Error("invalid state for synchronous reading")
 	}
-	data, err := c.read()
+	if bufferSize == 0 {
+		bufferSize = DefaultReadBufferSize
+	}
+	data, err := c.read(bufferSize)
 	if err != nil {
 		c.handleError(err)
 	} else {
@@ -87,24 +89,25 @@ func (c *TCPConnection) Read() ([]byte, error) {
 	return data, err
 }
 
-func (c *TCPConnection) readV2(r *bufio.Reader) ([]byte, error) {
-	var dataLength uint32
-	if r == nil {
-		r = bufio.NewReader(c.conn)
+func (c *TCPConnection) Read() ([]byte, error) {
+	if c.state != StateIdle {
+		return nil, errors.Error("invalid state for synchronous reading")
 	}
-	// read header from message
-	b := make([]byte, 6)
-	n, err := io.ReadFull(r, b)
+	data, err := c.readV2(bufio.NewReader(c.conn))
 	if err != nil {
-		if gerrors.Is(err, syscall.ECONNRESET) {
-			return nil, err
-		}
-		if err == io.EOF {
-			return c.readV2(r)
-		}
-		if n != 6 {
-			return nil, err
-		}
+		c.handleError(err)
+	} else {
+		c.handleMessage(data)
+	}
+	return data, err
+}
+
+func (c *TCPConnection) readV2(r io.Reader) ([]byte, error) {
+	var dataLength uint32
+	// read header from message
+	b := make([]byte, headerLength)
+	_, err := io.ReadFull(r, b)
+	if err != nil {
 		return nil, err
 	}
 	dataLength, err = computeFrameDataLength(c.messageVersion, b)
@@ -112,17 +115,8 @@ func (c *TCPConnection) readV2(r *bufio.Reader) ([]byte, error) {
 		return nil, err
 	}
 	contentBytes := make([]byte, dataLength)
-	n, err = io.ReadFull(r, contentBytes)
+	n, err := io.ReadFull(r, contentBytes)
 	if err != nil {
-		if gerrors.Is(err, syscall.ECONNRESET) {
-			return nil, err
-		}
-		if err == io.EOF {
-			return c.readV2(r)
-		}
-		if n != int(dataLength) {
-			return nil, err
-		}
 		return nil, err
 	}
 	if n != int(dataLength) {
@@ -131,9 +125,9 @@ func (c *TCPConnection) readV2(r *bufio.Reader) ([]byte, error) {
 	return contentBytes, nil
 }
 
-func (c *TCPConnection) read() ([]byte, error) {
+func (c *TCPConnection) read(bufferSize int) ([]byte, error) {
 	var dataLength, consumedLength uint32
-	buffer := make([]byte, DefaultReadBufferSize)
+	buffer := make([]byte, bufferSize)
 	n, err := c.conn.Read(buffer)
 	if err != nil {
 		return nil, err
@@ -151,7 +145,7 @@ func (c *TCPConnection) read() ([]byte, error) {
 		return nil, errors.Error("invalid buffer length, buffer length is expected to be larger than header size")
 	}
 	buffer = buffer[headerLength:n]
-	if dataLength <= DefaultReadBufferSize-headerLength {
+	if dataLength <= uint32(bufferSize)-headerLength {
 		// put the remaining stream into the remaining read buffer
 		c.remainingReadBuffer = buffer[dataLength:]
 		return buffer[:dataLength], nil
