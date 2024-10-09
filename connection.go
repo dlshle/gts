@@ -224,8 +224,8 @@ func (c *TCPConnection) ReadLoop() {
 	c.setState(StateReading)
 	// c.conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
 	for c.State() == StateReading {
-		// r := bufio.NewReader(c.conn)
-		msg, err := c.read()
+		r := bufio.NewReader(c.conn)
+		msg, err := c.readV2(r)
 		if err == nil {
 			c.handleMessage(msg)
 		} else if err != nil {
