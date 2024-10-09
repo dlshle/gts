@@ -2,12 +2,14 @@ package gts
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"net"
 	"sync"
 
 	"github.com/dlshle/gommon/errors"
+	"github.com/dlshle/gommon/logging"
 )
 
 const (
@@ -33,6 +35,7 @@ type Connection interface {
 	ReadLoop()
 	String() string
 	IsLive() bool
+	Verbose(bool)
 }
 
 type TCPConnection struct {
@@ -45,6 +48,7 @@ type TCPConnection struct {
 	remainingReadBuffer []byte
 	closeChan           chan bool
 	mutex               *sync.Mutex
+	verbose             bool
 }
 
 func NewTCPConnection(conn net.Conn) Connection {
@@ -53,6 +57,7 @@ func NewTCPConnection(conn net.Conn) Connection {
 		state:     StateIdle,
 		closeChan: make(chan bool),
 		mutex:     new(sync.Mutex),
+		verbose:   false,
 	}
 }
 
@@ -106,16 +111,19 @@ func (c *TCPConnection) readV2(r io.Reader) ([]byte, error) {
 	var dataLength uint32
 	// read header from message
 	b := make([]byte, headerLength)
-	_, err := io.ReadFull(r, b)
+	n, err := io.ReadFull(r, b)
+	c.maybeLog("read header from stream with %d bytes, err = %v", n, err)
 	if err != nil {
 		return nil, err
 	}
 	dataLength, err = computeFrameDataLength(c.messageVersion, b)
+	c.maybeLog("from header, data length = %d bytes, err = %v ", dataLength, err)
 	if err != nil {
 		return nil, err
 	}
 	contentBytes := make([]byte, dataLength)
-	n, err := io.ReadFull(r, contentBytes)
+	n, err = io.ReadFull(r, contentBytes)
+	c.maybeLog("read %d bytes for subsequent data, data length = %d bytes, err = %v", n, dataLength, err)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +187,8 @@ func (c *TCPConnection) handleMessage(message []byte) {
 func (c *TCPConnection) Write(data []byte) (err error) {
 	wrappedData := wrapData(data, c.messageVersion)
 	c.mutex.Lock()
-	_, err = c.conn.Write(wrappedData)
+	n, err := c.conn.Write(wrappedData)
+	c.maybeLog("wrote %d bytes to stream, data length = %d bytes, err = %v", n, len(data), err)
 	c.mutex.Unlock()
 	if err != nil {
 		c.handleError(err)
@@ -243,4 +252,14 @@ func (c *TCPConnection) String() string {
 
 func (c *TCPConnection) IsLive() bool {
 	return c.State() == StateReading
+}
+
+func (c *TCPConnection) Verbose(verbose bool) {
+	c.verbose = verbose
+}
+
+func (c *TCPConnection) maybeLog(format string, args ...interface{}) {
+	if c.verbose {
+		logging.GlobalLogger.Debugf(context.Background(), format, args...)
+	}
 }
