@@ -41,6 +41,7 @@ type Connection interface {
 type TCPConnection struct {
 	messageVersion      byte
 	conn                net.Conn
+	r                   io.Reader
 	onMessage           func([]byte)
 	onClose             func(error)
 	onError             func(error)
@@ -54,6 +55,7 @@ type TCPConnection struct {
 func NewTCPConnection(conn net.Conn) Connection {
 	return &TCPConnection{
 		conn:      conn,
+		r:         bufio.NewReader(conn),
 		state:     StateIdle,
 		closeChan: make(chan bool),
 		mutex:     new(sync.Mutex),
@@ -98,7 +100,7 @@ func (c *TCPConnection) Read() ([]byte, error) {
 	if c.state != StateIdle {
 		return nil, errors.Error("invalid state for synchronous reading")
 	}
-	data, err := c.readV2(bufio.NewReader(c.conn))
+	data, err := c.readV2()
 	if err != nil {
 		c.handleError(err)
 	} else {
@@ -107,11 +109,11 @@ func (c *TCPConnection) Read() ([]byte, error) {
 	return data, err
 }
 
-func (c *TCPConnection) readV2(r io.Reader) ([]byte, error) {
+func (c *TCPConnection) readV2() ([]byte, error) {
 	var dataLength uint32
 	// read header from message
 	b := make([]byte, headerLength)
-	n, err := io.ReadFull(r, b)
+	n, err := io.ReadFull(c.r, b)
 	c.maybeLog("read header from stream with %d bytes, err = %v", n, err)
 	if err != nil {
 		return nil, err
@@ -122,7 +124,7 @@ func (c *TCPConnection) readV2(r io.Reader) ([]byte, error) {
 		return nil, err
 	}
 	contentBytes := make([]byte, dataLength)
-	n, err = io.ReadFull(r, contentBytes)
+	n, err = io.ReadFull(c.r, contentBytes)
 	c.maybeLog("read %d bytes for subsequent data, data length = %d bytes, err = %v", n, dataLength, err)
 	if err != nil {
 		return nil, err
@@ -188,7 +190,7 @@ func (c *TCPConnection) Write(data []byte) (err error) {
 	wrappedData := wrapData(data, c.messageVersion)
 	c.mutex.Lock()
 	n, err := c.conn.Write(wrappedData)
-	c.maybeLog("wrote %d bytes to stream, data length = %d bytes, err = %v", n, len(data), err)
+	c.maybeLog("wrote %d bytes to stream, data length = %d bytes, err = %v", n, len(wrappedData), err)
 	c.mutex.Unlock()
 	if err != nil {
 		c.handleError(err)
@@ -233,8 +235,7 @@ func (c *TCPConnection) ReadLoop() {
 	c.setState(StateReading)
 	// c.conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
 	for c.State() == StateReading {
-		r := bufio.NewReader(c.conn)
-		msg, err := c.readV2(r)
+		msg, err := c.readV2()
 		if err == nil {
 			c.handleMessage(msg)
 		} else if err != nil {
